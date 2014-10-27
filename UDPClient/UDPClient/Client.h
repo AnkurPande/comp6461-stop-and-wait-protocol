@@ -1,4 +1,4 @@
-//Client Header File
+//Client Header File//
 
 #define STIMER 0  //Lower limit of timer
 #define UTIMER 300000//Upper limit of timer
@@ -13,7 +13,8 @@
 #define MAX_FRAME_SIZE 1024 //Maximum Frame size
 #define MAX_RANDOM 256 //Upper limit for random numbers
 #define SEQUENCE_WIDTH 1 // bits width for sequence in stop and wait protocol
- 
+#define INFO_BUFFER_SIZE 40
+
 #include <winsock.h>
 #include<fstream>
 using namespace std;
@@ -33,7 +34,7 @@ typedef struct
 
 typedef struct{
 	PacketType packet_type;
-	HandshakeType handshake;
+	HandshakeType handshake_type;
 	Direction direction;
 	char hostname[HOSTNAME_LENGTH];
 	char filename[FILENAME_LENGTH];
@@ -55,7 +56,7 @@ class UDPClient{
 	SOCKADDR_IN sa;			// client info, IP, port 5000
 	SOCKADDR_IN sa_in;		// router info, IP, port 7000
 	int sa_in_size;
-	timeval timeouts;
+	struct timeval timeouts;
 	ThreeWayHandshake handshake;
 	int random;
 	WSADATA wsadata;
@@ -69,13 +70,13 @@ public:
 	
 	void run();
 	bool sendFile(int, char *, char *,int); //Send the file after the hanshake succeeded
-	int sendRequest(int, ThreeWayHandshake *, SOCKADDR_IN *); //Start the initiation of hanshake
+	int sendRequest(int, ThreeWayHandshake *, struct sockaddr_in*);; //Start the initiation of hanshake
 	int sendFrame(int, MessageFrame *); // Send the frame of data
 	int sendFileAck(int, Acknowledgement *); // Send the File Acknowledgment
 
 	bool recieveFile(int, char *, char *, int); // Recieve the File from remote host after the handshake
-	RecieveResult ReceiveResponse(int, ThreeWayHandshake *); // Recieve the response after the initiation of handshake  
-	RecieveResult ReceiveFrame(int, MessageFrame *); // Recieve Frame of data
-	RecieveResult ReceiveFileAck(int, Acknowledgement *); // Recieve File Acknowledgment 
-
+	RecieveResult receiveResponse(int, ThreeWayHandshake *); // Recieve the response after the initiation of handshake  
+	RecieveResult receiveFrame(int, MessageFrame *); // Recieve Frame of data
+	RecieveResult receiveFileAck(int, Acknowledgement *); // Recieve File Acknowledgment 
+	void printError(TCHAR* );
 };
