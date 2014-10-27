@@ -18,14 +18,70 @@ using namespace std;
 using std::ofstream;
 
 bool UDPClient::sendFile(int sock, char * fileName, char * sending_hostname, int server_number){}
-int UDPClient::sendRequest(int sock, ThreeWayHandshake * handshake, SOCKADDR_IN * sa){}
-int UDPClient::sendFrame(int sock, MessageFrame * frame){}
-int UDPClient::sendFileAck(int sock, Acknowledgement * frame_ack){}
 
-bool UDPClient :: recieveFile(int sock, char * fileName, char * serding_hostname, int client_number){}
-RecieveResult UDPClient::ReceiveResponse(int sock, ThreeWayHandshake * handshake){}
-RecieveResult UDPClient::ReceiveFrame(int sock, MessageFrame * frame){}
-RecieveResult UDPClient::ReceiveFileAck(int sock, Acknowledgement * frame_ack){}
+int UDPClient::sendRequest(int sock, ThreeWayHandshake * ptr_handshake, struct sockaddr_in * sa_in)
+{
+	return sendto(sock, (const char *)ptr_handshake, sizeof(*ptr_handshake), 0, (struct sockaddr *)sa_in, sizeof(*sa_in));
+}
+
+int UDPClient::sendFrame(int sock, MessageFrame * frame)
+{
+	return sendto(sock,(const char*)frame,sizeof(*frame),0,(struct sockaddr*)&sa_in,sizeof(sa_in));
+}
+int UDPClient::sendFileAck(int sock, Acknowledgement * frame_ack)
+{
+	return sendto(sock,(const char*)frame_ack,sizeof(*frame_ack),0,(struct sockaddr *)&sa_in,sizeof(sa_in));
+}
+
+bool UDPClient :: recieveFile(int sock, char * fileName, char * sending_hostname, int client_number){}
+
+RecieveResult UDPClient::receiveResponse(int sock, ThreeWayHandshake * ptr_handshake){
+	fd_set readfds;
+	FD_ZERO(&readfds);
+	FD_SET(sock, &readfds);
+	int bytes_recvd = 0;
+	int outfds = select(1, &readfds, 0, 0, &timeouts);
+	if(outfds == 0){
+		return TIMEOUT;
+	}
+	else if (outfds > 0){
+		bytes_recvd = recvfrom(sock, (char*)ptr_handshake, sizeof(ptr_handshake), 0, (struct sockaddr*)&sa_in, &sa_in_size);
+		return INCOMING_PACKET;
+	}
+	else 
+	return RECIEVE_ERROR;
+}
+RecieveResult UDPClient::receiveFrame(int sock, MessageFrame * frame){
+	fd_set readfds;
+	FD_ZERO(&readfds);
+	FD_SET(sock,&readfds);
+	int bytes_recvd = 0;
+	int outfds = select(1, &readfds, 0, 0, &timeouts);
+	if (outfds > 0){
+		bytes_recvd = recvfrom(sock, (char *)frame, sizeof(*frame), 0, (struct sockaddr*)&sa_in, &sa_in_size);
+		return INCOMING_PACKET;
+	}
+	else if (outfds ==0){
+		return TIMEOUT;
+	}
+	else 
+	return RECIEVE_ERROR;
+}
+RecieveResult UDPClient::receiveFileAck(int sock, Acknowledgement * frame_ack){
+	fd_set readfds;
+	FD_ZERO(&readfds);
+	FD_SET(sock, &readfds);
+	int bytes_recvd;
+	int outfds = select(1, &readfds, 0, 0, &timeouts);
+	if (outfds == 0){
+		return TIMEOUT;
+	}
+	else if (outfds > 0){
+		bytes_recvd = recvfrom(sock,(char *)frame_ack,sizeof(frame_ack),0,(struct sockaddr*)&sa_in,&sa_in_size);
+		return INCOMING_PACKET;
+	}
+	else return RECIEVE_ERROR;
+}
 
 void UDPClient::printError(TCHAR* msg) {
 	DWORD eNum;
@@ -148,7 +204,7 @@ void UDPClient::run(){
 
 				cout << "\nClient sent successfully client number :C" << handshake.client_number;
 				if (TRACE1) { fout << "\nClient sent successfully client number :C" << handshake.client_number; }
-			} while (ReceiveResponse(sock, &handshake) != INCOMING_PACKET);
+			} while (receiveResponse(sock, &handshake) != INCOMING_PACKET);
 
 			//check how server responds
 			if (handshake.handshake_type == FILE_NOT_EXIST){
@@ -197,7 +253,7 @@ void UDPClient::run(){
 				}//Switch Close.
 			}//If close(Acknowledgment)			
 		}//If close (bContinue)
-		cout << "Closing socket";
+		cout << "\nClosing socket";
 		closesocket(sock);
 	}//While loop Close
 }
