@@ -17,7 +17,125 @@
 using namespace std;
 using std::ofstream;
 
-bool UDPClient::sendFile(int sock, char * fileName, char * sending_hostname, int server_number){}
+bool fileExist(char * filePath){
+	struct _stat buf;
+	int result;
+	result = _stat(filePath, &buf);
+	return (result == 0);
+}
+
+long getFileSize(char *filename){
+	struct _stat buf;
+	int result;
+	result = _stat(filename, &buf);
+	if (result == 0)
+		return buf.st_size;
+	else return 0;
+}
+
+bool UDPClient::sendFile(int sock, char * fileName, char * sending_hostname, int server_number){
+	
+	MessageFrame frame; frame.packet_type = FRAME;
+	Acknowledgement ack; ack.number = -1;
+	bool bFirstPacket = true, bFinished = false,bMaxAttempts =false;
+	long bytes_counter =0, bytes_count =0;
+	int bytes_read_total=0, bytes_read =0, bytes_sent =0;
+	int packets_sent =0, packets_actual_needed=0;
+	int nTries =0;
+	int sequence_number = server_number % 2;
+	
+	cout << "\nSender started on " << sending_hostname;
+	if (TRACE1){ fout << "\nSender started on " << sending_hostname; }
+
+	FILE * file = fopen(fileName,"r+b");
+	if (file != NULL)
+	{
+		bytes_counter = getFileSize(fileName);
+		while (1)
+		{
+			if (bytes_counter > MAX_FRAME_SIZE)
+			{
+				frame.header = (bFirstPacket ? INITIAL_DATA : DATA);
+				bytes_count = MAX_FRAME_SIZE;
+			}
+			else
+			{
+				bytes_count = bytes_counter;
+				bFinished = true;
+			}
+			bytes_counter -= MAX_FRAME_SIZE;
+
+			//read bytes in buffer
+			bytes_read = fread(frame.buffer, sizeof(char), bytes_count, file);
+			frame.buffer_length = bytes_count;
+			frame.snwseq = sequence_number;
+			bytes_read_total += bytes_read;
+
+			nTries = 0;
+			do
+			{
+				nTries++;//Only used for the last frame ie if no ack arrive and client may be gone.
+				if (sendFrame(sock, &frame) != sizeof(frame))
+					return false;
+				if (nTries == 1)
+					packets_actual_needed++; //Increment only if the packet sent once.
+				packets_sent++;
+				bytes_sent += sizeof(frame);//Keep counter of total bytes actual sent.
+				if (bFinished && (nTries > MAX_RETRIES))
+				{
+					bMaxAttempts = true;
+					break;
+				}
+			} while (receiveFileAck(sock, &ack) != INCOMING_PACKET || ack.number != sequence_number);
+			
+			if (bMaxAttempts)
+			{//Max attempt achieved for the ACK of final packet.
+				cout << "Sender: did not receive ACK " << sequence_number << " after " << MAX_RETRIES << " tries. Transfer finished." << endl;
+				if (TRACE1) { fout << "Sender: did not receive ACK " << sequence_number << " after " << MAX_RETRIES << " tries. Transfer finished." << endl; }
+			}
+			else 
+			{
+				cout << "Sender: Received ACK " << sequence_number  << endl;
+				if (TRACE1) { fout << "Sender: Received ACK " << sequence_number  << endl; }
+			}
+			
+			/*False the counter for first packet*/
+			bFirstPacket = false;
+			
+			/*Invert the sequence number for the secong dispatch*/
+			sequence_number = (sequence_number == 0 ? 1 : 0);
+			
+			/*Break the loop if sending finished*/
+			if (bFinished)
+			{
+				break;
+			}
+		}
+		fclose(file);
+		cout << endl
+			<< "File Transferred Completely" << endl
+			<< "Total no of bytes read :" << bytes_read_total << endl
+			<< "Total no of bytes sent :" << bytes_sent << endl
+			<< "Total no of packets actually required to sent :" << packets_actual_needed << endl
+			<< "Total no of packets sent in actual :" << packets_sent << endl;
+		if (TRACE1)
+		{
+			fout << endl
+				<< "File Transferred Completely" << endl
+				<< "Total no of bytes read :" << bytes_read_total << endl
+				<< "Total no of bytes sent :" << bytes_sent << endl
+				<< "Total no of packets actually required to sent :" << packets_actual_needed << endl
+				<< "Total no of packets sent in actual :" << packets_sent << endl;
+		}
+		return true;
+	}
+	else 
+	{
+		cout << "Problem opening the file";
+		if (TRACE1){ fout << "Problem opening the file"; }
+		return false;
+	}
+}
 
 int UDPClient::sendRequest(int sock, ThreeWayHandshake * ptr_handshake, struct sockaddr_in * sa_in)
 {
@@ -185,9 +303,9 @@ void UDPClient::run(){
 				handshake.direction = GET;
 			}
 			else if (strcmp(direction, "PUT") == 0){
-				//Check that file exist if(condition) {
-				handshake.direction = PUT;
-				//} else {cout<<"File not exist";}
+				if (fileExist(filename))
+					handshake.direction = PUT;
+				else printError("File Not Present At Client Side");
 			}
 			else
 				cout << "\nINVALID: Use GET/PUT only";
