@@ -6,18 +6,66 @@
 #include <stdio.h>
 #include <iostream>
 #include <fstream>
-#include <string.h>
+#include <string>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <windows.h>
 #include <time.h>
 #include<tchar.h>
-#pragma comment(lib,"wsock32.lib")
+#include<vector>
 #include "Client.h"
+#include "Shlwapi.h"
+#pragma comment(lib,"wsock32.lib")
+#pragma comment (lib,"Shlwapi.lib") 
 
 using namespace std;
 using std::ofstream;
 
+void deleteFile(string s)
+{
+	char  filename[150] = { "\0" };
+	cout << "Enter the file name : ";
+	cin >> filename;
+
+	string s1 = s;
+	string s2 = filename;
+	s1.append("\\");
+	s1.append(s2);
+	s1.copy(filename, 150);
+	cout << filename << endl;
+
+	if (remove(filename) != 0)
+		perror("\nError deleting file.\n");
+	else
+		puts("\nFile successfully deleted.\n");
+
+}
+
+void list(string s){
+
+	WIN32_FIND_DATA file_data;
+	HANDLE hFile;
+	vector<string> files;
+
+	string dir = s;
+	
+
+	hFile = FindFirstFile((dir + "/*").c_str(), &file_data);
+
+	cout << file_data.cFileName;
+	do{
+		string fileName = file_data.cFileName;
+		files.push_back(fileName);
+	} while ((FindNextFile(hFile, &file_data)) != 0);
+
+	cout << endl
+		<< "========================" << endl;
+	for (auto & i : files){
+		cout <<i << endl;
+	}
+	cout << endl
+		<< "========================" << endl;
+}
 
 bool FileExists(char * filename)
 {
@@ -30,7 +78,7 @@ bool FileExists(char * filename)
 	case EINVAL:
 		cout << "Path invalid";
 	default:
-		cout << "Unexpected error";
+		//cout << "Unexpected error";
 	}
 	return (result == 0);
 }
@@ -47,22 +95,22 @@ long GetFileSize(char * filename)
 /* SENDING FUNCTIONS */
 bool UDPClient::SendFile(int sock, char * filename, char * sending_hostname, int server_number)
 {
+
 	MessageFrame frame; frame.packet_type = FRAME;
 	Acknowledgement ack; ack.number = -1;
-	long bytes_counter = 0, bytes_count = 0;
+	long bytes_counter = 0, byte_count = 0;
 	int bytes_sent = 0, bytes_read = 0, bytes_read_total = 0;
-	int packets_sent = 0, packets_actual_needed = 0;
+	int packetsSent = 0, packetsSentNeeded = 0;
 	bool bFirstPacket = true, bFinished = false;
 	int sequence_number = server_number % 2; // Initial bit-sequence expected by the client
 	int nTries; bool bMaxAttempts = false;
 
-	cout << "\nSender Started on " << sending_hostname;
 	if (TRACE) { fout << "Sender started on host " << sending_hostname << endl; }
 
 	/* Open file stream in read-only binary mode */
-	FILE * file = fopen(filename, "r+b");
+	FILE * stream = fopen(filename, "r+b");
 
-	if (file != NULL)
+	if (stream != NULL)
 	{
 		bytes_counter = GetFileSize(filename);
 		while (1) // Send packets
@@ -70,11 +118,11 @@ bool UDPClient::SendFile(int sock, char * filename, char * sending_hostname, int
 			if (bytes_counter > MAX_FRAME_SIZE)
 			{
 				frame.header = (bFirstPacket ? INITIAL_DATA : DATA);
-				bytes_count = MAX_FRAME_SIZE;
+				byte_count = MAX_FRAME_SIZE;
 			}
 			else // Last packet; there are at most MAX_FRAME_SIZE bytes left to send
 			{
-				bytes_count = bytes_counter;			// last remaining bytes
+				byte_count = bytes_counter;			// last remaining bytes
 				bFinished = true;
 				frame.header = FINAL_DATA;
 			}
@@ -82,9 +130,9 @@ bool UDPClient::SendFile(int sock, char * filename, char * sending_hostname, int
 			bytes_counter -= MAX_FRAME_SIZE; // Decrease byte counter
 
 			// Read bytes into frame buffer
-			bytes_read = fread(frame.buffer, sizeof(char), bytes_count, file);
+			bytes_read = fread(frame.buffer, sizeof(char), byte_count, stream);
 			bytes_read_total += bytes_read;
-			frame.buffer_length = bytes_count;
+			frame.buffer_length = byte_count;
 			frame.snwseq = sequence_number;	// Set the frame SEQUENCE bit
 
 			// Send frame
@@ -93,9 +141,9 @@ bool UDPClient::SendFile(int sock, char * filename, char * sending_hostname, int
 				nTries++;
 				if (SendFrame(sock, &frame) != sizeof(frame))
 					return false;
-				packets_sent++;
+				packetsSent++;
 				if (nTries == 1)
-					packets_actual_needed++; // only increment if we've sent the packet ONCE
+					packetsSentNeeded++; // only increment if we've sent the packet ONCE
 				bytes_sent += sizeof(frame); // Keep counter
 
 				cout << "Sender: sent frame sequence number " << sequence_number << endl;
@@ -119,7 +167,7 @@ bool UDPClient::SendFile(int sock, char * filename, char * sending_hostname, int
 				cout << "Sender: received ACK " << ack.number << endl;
 				if (TRACE) { fout << "Sender: received ACK " << ack.number << endl; }
 			}
-			/*False the counter for first packet*/
+
 			bFirstPacket = false;
 
 			/* Invert sequence number for next dispatch */
@@ -130,16 +178,16 @@ bool UDPClient::SendFile(int sock, char * filename, char * sending_hostname, int
 				break;
 		}
 
-		fclose(file);
+		fclose(stream);
 		cout << "Sender: File is transferred Successfully." << endl;
-		cout << "Sender: Total number of packets transmitted: " << packets_sent << endl;
-		cout << "Sender: Total number of packets to be transmitted (needed): " << packets_actual_needed << endl;
+		cout << "Sender: Total number of packets transmitted: " << packetsSent << endl;
+		cout << "Sender: Total number of packets to be transmitted (needed): " << packetsSentNeeded << endl;
 		cout << "Sender: Total number of bytes transmitted: " << bytes_sent << endl;
 		cout << "Sender: Total number of bytes read: " << bytes_read_total << endl << endl;
 		if (TRACE) {
 			fout << "Sender: File is transferred Successfully." << endl;
-			fout << "Sender: Total number of packets transmitted: " << packets_sent << endl;
-			fout << "Sender: Total number of packets to be transmitted (needed): " << packets_actual_needed << endl;
+			fout << "Sender: Total number of packets transmitted: " << packetsSent << endl;
+			fout << "Sender: Total number of packets to be transmitted (needed): " << packetsSentNeeded << endl;
 			fout << "Sender: Total number of bytes transmitted: " << bytes_sent << endl;
 			fout << "Sender: Total number of bytes read: " << bytes_read_total << endl << endl;
 		}
@@ -481,6 +529,9 @@ void UDPClient::run()
 					if (!SendFile(sock, handshake.filename, hostname, handshake.server_number))
 						printError("An error occurred while sending the file.");
 					break;
+				case DEL:
+
+				case LIST:
 				default:
 					break;
 				}
