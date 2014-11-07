@@ -1,4 +1,6 @@
 // UDP Client 
+/* Client */
+
 
 #include <winsock.h>
 #include <stdio.h>
@@ -9,18 +11,19 @@
 #include <sys/stat.h>
 #include <windows.h>
 #include <time.h>
-#include <tchar.h>
-
+#include<tchar.h>
 #pragma comment(lib,"wsock32.lib")
 #include "Client.h"
 
 using namespace std;
 using std::ofstream;
 
-bool fileExist(char * filePath){
-	struct _stat buf;
+
+bool FileExists(char * filename)
+{
 	int result;
-	result = _stat(filePath, &buf);
+	struct _stat stat_buf;
+	result = _stat(filename, &stat_buf);
 	switch (errno){
 	case  ENOENT:
 		cout << "File not exist";
@@ -30,272 +33,294 @@ bool fileExist(char * filePath){
 		cout << "Unexpected error";
 	}
 	return (result == 0);
-
 }
 
-long getFileSize(char *filename){
-	struct _stat buf;
+long GetFileSize(char * filename)
+{
 	int result;
-	result = _stat(filename, &buf);
-	if (result == 0)
-		return buf.st_size;
-	else return 0;
+	struct _stat stat_buf;
+	result = _stat(filename, &stat_buf);
+	if (result != 0) return 0;
+	return stat_buf.st_size;
 }
 
-bool UDPClient::sendFile(int sock, char * fileName, char * sending_hostname, int server_number){
-	
+/* SENDING FUNCTIONS */
+bool UDPClient::SendFile(int sock, char * filename, char * sending_hostname, int server_number)
+{
 	MessageFrame frame; frame.packet_type = FRAME;
 	Acknowledgement ack; ack.number = -1;
-	bool bFirstPacket = true, bFinished = false,bMaxAttempts =false;
-	long bytes_counter =0, bytes_count =0;
-	int bytes_read_total=0, bytes_read =0, bytes_sent =0;
-	int packets_sent =0, packets_actual_needed=0;
-	int nTries =0;
-	int sequence_number = server_number % 2;
-	
-	cout << "\nSender started on " << sending_hostname;
-	if (TRACE1) { fout << "\nSender started on " << sending_hostname; }
+	long bytes_counter = 0, bytes_count = 0;
+	int bytes_sent = 0, bytes_read = 0, bytes_read_total = 0;
+	int packets_sent = 0, packets_actual_needed = 0;
+	bool bFirstPacket = true, bFinished = false;
+	int sequence_number = server_number % 2; // Initial bit-sequence expected by the client
+	int nTries; bool bMaxAttempts = false;
 
-	FILE * file = fopen(fileName,"r+b");
+	cout << "\nSender Started on " << sending_hostname;
+	if (TRACE) { fout << "Sender started on host " << sending_hostname << endl; }
+
+	/* Open file stream in read-only binary mode */
+	FILE * file = fopen(filename, "r+b");
+
 	if (file != NULL)
 	{
-		bytes_counter = getFileSize(fileName);
-		while (1)
+		bytes_counter = GetFileSize(filename);
+		while (1) // Send packets
 		{
 			if (bytes_counter > MAX_FRAME_SIZE)
 			{
 				frame.header = (bFirstPacket ? INITIAL_DATA : DATA);
 				bytes_count = MAX_FRAME_SIZE;
 			}
-			else
+			else // Last packet; there are at most MAX_FRAME_SIZE bytes left to send
 			{
-				bytes_count = bytes_counter;
+				bytes_count = bytes_counter;			// last remaining bytes
 				bFinished = true;
+				frame.header = FINAL_DATA;
 			}
-			bytes_counter -= MAX_FRAME_SIZE;
 
-			//read bytes in buffer
+			bytes_counter -= MAX_FRAME_SIZE; // Decrease byte counter
+
+			// Read bytes into frame buffer
 			bytes_read = fread(frame.buffer, sizeof(char), bytes_count, file);
-			frame.buffer_length = bytes_count;
-			frame.snwseq = sequence_number;
 			bytes_read_total += bytes_read;
+			frame.buffer_length = bytes_count;
+			frame.snwseq = sequence_number;	// Set the frame SEQUENCE bit
 
-			nTries = 0;
-			do
-			{
-				nTries++;//Only used for the last frame ie if no ack arrive and server(reciever of file) may be gone.
-				if (sendFrame(sock, &frame) != sizeof(frame))
+			// Send frame
+			nTries = 0; // only used for last frame, i.e., if no ACK comes back (and client may be gone)
+			do {
+				nTries++;
+				if (SendFrame(sock, &frame) != sizeof(frame))
 					return false;
-				if (nTries == 1)
-					packets_actual_needed++; //Increment only if the packet sent once.
 				packets_sent++;
-				bytes_sent += sizeof(frame);//Keep counter of total bytes actual sent.
+				if (nTries == 1)
+					packets_actual_needed++; // only increment if we've sent the packet ONCE
+				bytes_sent += sizeof(frame); // Keep counter
+
+				cout << "Sender: sent frame sequence number " << sequence_number << endl;
+				if (TRACE) { fout << "Sender: sequence number " << sequence_number << endl; }
+
 				if (bFinished && (nTries > MAX_RETRIES))
 				{
 					bMaxAttempts = true;
 					break;
 				}
-			} while (receiveFileAck(sock, &ack) != INCOMING_PACKET || ack.number != sequence_number);
-			
-			if (bMaxAttempts)
-			{//Max attempt achieved for the ACK of final packet.
-				cout << "Sender: did not receive ACK " << sequence_number << " after " << MAX_RETRIES << " tries. Transfer finished." << endl;
-				if (TRACE1) { fout << "Sender: did not receive ACK " << sequence_number << " after " << MAX_RETRIES << " tries. Transfer finished." << endl; }
-			}
-			else 
+
+			} while (ReceiveFileAck(sock, &ack) != INCOMING_PACKET || ack.number != sequence_number);
+
+			if (bMaxAttempts) // Max attempts to receive an ACK for final packet
 			{
-				cout << "Sender: Received ACK " << sequence_number  << endl;
-				if (TRACE1) { fout << "Sender: Received ACK " << sequence_number  << endl; }
+				cout << "Sender: did not receive ACK " << sequence_number << " after " << MAX_RETRIES << " tries. Transfer finished." << endl;
+				if (TRACE) { fout << "Sender: did not receive ACK " << sequence_number << " after " << MAX_RETRIES << " tries. Transfer finished." << endl; }
 			}
-			
+			else
+			{
+				cout << "Sender: received ACK " << ack.number << endl;
+				if (TRACE) { fout << "Sender: received ACK " << ack.number << endl; }
+			}
 			/*False the counter for first packet*/
 			bFirstPacket = false;
-			
-			/*Invert the sequence number for the next dispatch*/
+
+			/* Invert sequence number for next dispatch */
 			sequence_number = (sequence_number == 0 ? 1 : 0);
-			
-			/*Break the loop if sending finished*/
+
+			/* Exit if last frame has been sent */
 			if (bFinished)
-			{
 				break;
-			}
 		}
+
 		fclose(file);
-		cout << endl
-			<< "File Transferred Completely" << endl
-			<< "Total no of bytes read :" << bytes_read_total << endl
-			<< "Total no of bytes sent :" << bytes_sent << endl
-			<< "Total no of packets actually required to sent :" << packets_actual_needed << endl
-			<< "Total no of packets sent in actual :" << packets_sent << endl;
-		if (TRACE1)
-		{
-			fout << endl
-				<< "File Transferred Completely" << endl
-				<< "Total no of bytes read :" << bytes_read_total << endl
-				<< "Total no of bytes sent :" << bytes_sent << endl
-				<< "Total no of packets actually required to sent :" << packets_actual_needed << endl
-				<< "Total no of packets sent in actual :" << packets_sent << endl;
+		cout << "Sender: File is transferred Successfully." << endl;
+		cout << "Sender: Total number of packets transmitted: " << packets_sent << endl;
+		cout << "Sender: Total number of packets to be transmitted (needed): " << packets_actual_needed << endl;
+		cout << "Sender: Total number of bytes transmitted: " << bytes_sent << endl;
+		cout << "Sender: Total number of bytes read: " << bytes_read_total << endl << endl;
+		if (TRACE) {
+			fout << "Sender: File is transferred Successfully." << endl;
+			fout << "Sender: Total number of packets transmitted: " << packets_sent << endl;
+			fout << "Sender: Total number of packets to be transmitted (needed): " << packets_actual_needed << endl;
+			fout << "Sender: Total number of bytes transmitted: " << bytes_sent << endl;
+			fout << "Sender: Total number of bytes read: " << bytes_read_total << endl << endl;
 		}
 		return true;
 	}
-	else 
+	else
 	{
-		cout << "Problem opening the file";
-		if (TRACE1){ fout << "Problem opening the file"; }
+		cout << "Sender: problem opening the file." << endl;
+		if (TRACE) { fout << "Sender: problem opening the file." << endl; }
 		return false;
 	}
 }
 
-int UDPClient::sendRequest(int sock, ThreeWayHandshake * ptr_handshake, struct sockaddr_in * sa_in)
+int UDPClient::SendRequest(int sock, ThreeWayHandshake * ptr_handshake, struct sockaddr_in * sa_in)
 {
 	return sendto(sock, (const char *)ptr_handshake, sizeof(*ptr_handshake), 0, (struct sockaddr *)sa_in, sizeof(*sa_in));
 }
 
-int UDPClient::sendFrame(int sock, MessageFrame * frame)
+int UDPClient::SendFrame(int sock, MessageFrame * ptr_message_frame)
 {
-	return sendto(sock,(const char*)frame,sizeof(*frame),0,(struct sockaddr*)&sa_in,sizeof(sa_in));
+	return sendto(sock, (const char*)ptr_message_frame, sizeof(*ptr_message_frame), 0, (struct sockaddr*)&sa_in, sizeof(sa_in));
 }
-int UDPClient::sendFileAck(int sock, Acknowledgement * frame_ack)
+
+int UDPClient::SendFileAck(int sock, Acknowledgement * ack)
 {
-	return sendto(sock,(const char*)frame_ack,sizeof(*frame_ack),0,(struct sockaddr *)&sa_in,sizeof(sa_in));
-}
-RecieveResult UDPClient::receiveResponse(int sock, ThreeWayHandshake * ptr_handshake){
-	fd_set readfds;
-	FD_ZERO(&readfds);
-	FD_SET(sock, &readfds);
-	int bytes_recvd = 0;
-	int outfds = select(1, &readfds, 0, 0, &timeouts);
-	if (outfds == 0){
-		return TIMEOUT;
-	}
-	else if (outfds > 0){
-		bytes_recvd = recvfrom(sock, (char*)ptr_handshake, sizeof(ptr_handshake), 0, (struct sockaddr*)&sa_in, &sa_in_size);
-		return INCOMING_PACKET;
-	}
-	else
-		return RECIEVE_ERROR;
-}
-RecieveResult UDPClient::receiveFrame(int sock, MessageFrame * frame){
-	fd_set readfds;
-	FD_ZERO(&readfds);
-	FD_SET(sock, &readfds);
-	int bytes_recvd = 0;
-	int outfds = select(1, &readfds, 0, 0, &timeouts);
-	if (outfds > 0){
-		bytes_recvd = recvfrom(sock, (char *)frame, sizeof(*frame), 0, (struct sockaddr*)&sa_in, &sa_in_size);
-		return INCOMING_PACKET;
-	}
-	else if (outfds == 0){
-		return TIMEOUT;
-	}
-	else
-		return RECIEVE_ERROR;
-}
-RecieveResult UDPClient::receiveFileAck(int sock, Acknowledgement * frame_ack){
-	fd_set readfds;
-	FD_ZERO(&readfds);
-	FD_SET(sock, &readfds);
-	int bytes_recvd;
-	int outfds = select(1, &readfds, 0, 0, &timeouts);
-	if (outfds == 0){
-		return TIMEOUT;
-	}
-	else if (outfds > 0){
-		bytes_recvd = recvfrom(sock, (char *)frame_ack, sizeof(frame_ack), 0, (struct sockaddr*)&sa_in, &sa_in_size);
-		return INCOMING_PACKET;
-	}
-	else return RECIEVE_ERROR;
+	return sendto(sock, (const char*)ack, sizeof(*ack), 0, (struct sockaddr*)&sa_in, sizeof(sa_in));
 }
 
-bool UDPClient::recieveFile(int sock, char * fileName, char * recieving_hostname, int client_number)
+/* RECEIVING FUNCTIONS */
+bool UDPClient::ReceiveFile(int sock, char * filename, char * receiving_hostname, int client_number)
 {
-	MessageFrame frame; Acknowledgement ack; ack.packet_type = FRAME_ACK;
-	int sequence_number = client_number % 2;
-	long bytes_count = 0;
-	int packets_sent = 0, packets_sent_needed = 0;
-	int bytes_written_total = 0, bytes_recieved = 0, bytes_written = 0;
+	MessageFrame frame;
+	Acknowledgement ack; ack.packet_type = FRAME_ACK;
+	long byte_count = 0;
+	int packetsSent = 0, packetsSentNeeded = 0;
+	int bytes_received = 0, bytes_written = 0, bytes_written_total = 0;
+	int sequence_number = client_number % 2; // Initial bit-sequence
 
-	if (TRACE1){ fout << "Receiver started on host " << recieving_hostname << endl; }
-	
-	/*Open File in binary writtable mode*/
-	FILE * file = fopen(fileName, "w+b");
-	if(file!=NULL){//Recieve frames.
-		while (1){
-			/*Block untill the first frame arrives.*/
-			while (receiveFrame(sock, &frame) != INCOMING_PACKET){ ; }
+	if (TRACE) { fout << "Receiver started on host " << receiving_hostname << endl; }
 
-			/*Keep counter of total byes recieved.*/
-			bytes_recieved += sizeof(frame);
+	/* Open file stream in writable binary mode */
+	FILE * stream = fopen(filename, "w+b");
 
-			/*Server didnt recieved the last handshake,send it again*/
-			if (frame.packet_type == HANDSHAKE){
-				cout << "Reciever recieved handshake Client : " << handshake.client_number << " Server : " << handshake.server_number << " ." << endl;
-				if (TRACE1){ fout << "Reciever recieved handshake Client : " << handshake.client_number << " Server : " << handshake.server_number << " ." << endl; }
-				if (sendRequest(sock, &handshake, &sa_in) != sizeof(handshake)){ printError("Error in sending"); }
-				cout << "Reciever sent successfully handshake Client : " << handshake.client_number << " Server : " << handshake.server_number << " ." << endl;
-				if (TRACE1){ fout << "Reciever sent successfully handshake Client : " << handshake.client_number << " Server : " << handshake.server_number << " ." << endl; }
+	if (stream != NULL)
+	{
+		while (1) // Receive packets
+		{
+			/* Block until a packet comes in */
+			while (ReceiveFrame(sock, &frame) != INCOMING_PACKET) { ; }
+
+			bytes_received += sizeof(frame); // Keep counter of total bytes received
+
+			if (frame.packet_type == HANDSHAKE) // send last handshake again, server didnt receive properly
+			{
+				cout << "Receiver: received handshake Client " << handshake.client_number << " Server " << handshake.server_number << endl;
+				if (TRACE) { fout << "Receiver: received handshake Client " << handshake.client_number << " Server " << handshake.server_number << endl; }
+				if (SendRequest(sock, &handshake, &sa_in) != sizeof(handshake))
+					printError("Error in sending packet.");
+				cout << "Receiver: sent handshake Client " << handshake.client_number << " Server" << handshake.server_number << endl;
+				if (TRACE) { fout << "Receiver: sent handshake Client " << handshake.client_number << " Server" << handshake.server_number << endl; }
 			}
-			else if (frame.packet_type == FRAME){
-				
+			else if (frame.packet_type == FRAME)
+			{
 				cout << "Receiver: received frame " << (int)frame.snwseq << endl;
-				if (TRACE1) { fout << "Receiver: received frame " << (int)frame.snwseq << endl; }
+				if (TRACE) { fout << "Receiver: received frame " << (int)frame.snwseq << endl; }
 
-				if ((int)frame.snwseq != sequence_number){
-					/*Check for duplicate frames, discard them but send the ack again.*/
-					cout << "Reciever recieved frame: " <<(int)frame.snwseq << " again." << endl;
-					if (TRACE1){ fout << "Reciever recieved frame: " << (int)frame.snwseq << " again." << endl; }
+				if ((int)frame.snwseq != sequence_number) // Ignore this frame; already processed; but send ACK again
+				{
 					ack.number = (int)frame.snwseq;
-					if (sendFileAck(sock, &ack) != sizeof(ack)){ printError("Error in sending ack."); return false; }
-					cout << "Reciever sent ack: " << ack.number << " again." << endl;
-					if (TRACE1){ fout << "Reciever sent ack: " << ack.number << " again." << endl; }
-					packets_sent++;
+					if (SendFileAck(sock, &ack) != sizeof(ack))
+						return false;
+					cout << "Receiver: sent ACK " << ack.number << " again" << endl;
+					packetsSent++;
+					if (TRACE) { fout << "Receiver: sent ACK " << ack.number << " again" << endl; }
 				}
-				else {
-					/*Process The New Frames.*/
+				else // New frame to process
+				{
+					/* Send ACK to server */
 					ack.number = (int)frame.snwseq;
-					if (sendFileAck(sock, &ack) != sizeof(ack)){ printError("Error in sending ack."); return false; }
-					cout << "Reciever sent ack: " << ack.number << "." << endl;
-					if (TRACE1){ fout << "Reciever sent ack: " << ack.number << " ." << endl; }
-					packets_sent++;
-					packets_sent_needed++;
+					if (SendFileAck(sock, &ack) != sizeof(ack))
+						return false;
+					cout << "Receiver: sent ACK " << ack.number << endl;
+					if (TRACE) { fout << "Receiver: sent ACK " << ack.number << endl; }
+					packetsSent++;
+					packetsSentNeeded++;
 
-					/*Write content to the file.*/
-					bytes_count = frame.buffer_length;
-					bytes_written = fwrite(frame.buffer,sizeof(char),bytes_count,file);
-					bytes_written_total +=bytes_written ;
+					/* Write frame buffer to file stream */
+					byte_count = frame.buffer_length;
+					bytes_written = fwrite(frame.buffer, sizeof(char), byte_count, stream);
+					bytes_written_total += bytes_written;
 
-					/*Invert sequence number for the next arrival.*/
+					/* Invert sequence number for verification in next reception */
 					sequence_number = (sequence_number == 0 ? 1 : 0);
 
-					/*Exit loop if recieved completely.*/
-					if (frame.header == FINAL_DATA){break;}
+					/* Exit loop if last frame */
+					if (frame.header == FINAL_DATA)
+						break;
 				}
 			}
 		}
-		fclose(file);
+
+		fclose(stream);
 		cout << "Receiver: File Transferred Successfully" << endl;
-		cout << "Receiver: Total number of packets transmitted: " << packets_sent << endl;
-		cout << "Receiver: Total number of packets to be transmitted (needed): " << packets_sent_needed << endl;
-		cout << "Receiver: Total number of bytes received: " << bytes_recieved << endl;
+		cout << "Receiver: Total number of packets transmitted: " << packetsSent << endl;
+		cout << "Receiver: Total number of packets to be transmitted (needed): " << packetsSentNeeded << endl;
+		cout << "Receiver: Total number of bytes received: " << bytes_received << endl;
 		cout << "Receiver: Total number of bytes written: " << bytes_written_total << endl << endl;
 
-		if (TRACE1) {
+		if (TRACE) {
 			fout << "Receiver: File Transferred Successfully" << endl;
-			fout << "Receiver: Total number of packets transmitted: " << packets_sent << endl;
-			fout << "Receiver: Total number of packets to be transmitted (needed): " << packets_sent_needed << endl;
-			fout << "Receiver: Total number of bytes received: " << bytes_recieved << endl;
+			fout << "Receiver: Total number of packets transmitted: " << packetsSent << endl;
+			fout << "Receiver: Total number of packets to be transmitted (needed): " << packetsSentNeeded << endl;
+			fout << "Receiver: Total number of bytes received: " << bytes_received << endl;
 			fout << "Receiver: Total number of bytes written: " << bytes_written_total << endl << endl;
 		}
 		return true;
 	}
-	else{
-		cout << "Problem in opening the file"<<endl;
-		if (TRACE1){ fout << "Problem in opening the file." << endl; }
+	else
+	{
+		cout << "Receiver: problem opening the file." << endl;
+		if (TRACE) { fout << "Receiver: problem opening the file." << endl; }
+		return false;
 	}
 }
 
+RecieveResult UDPClient::ReceiveResponse(int sock, ThreeWayHandshake * ptr_handshake)
+{
+	fd_set readfds;			// fd_set is a type
+	FD_ZERO(&readfds);		// initialize
+	FD_SET(sock, &readfds);	// put the socket in the set
+	int bytes_recvd;
+	int outfds = select(1, &readfds, NULL, NULL, &timeouts);
+	switch (outfds)
+	{
+	case 0:
+		return TIMEOUT; break;
+	case 1:
+		bytes_recvd = recvfrom(sock, (char *)ptr_handshake, sizeof(*ptr_handshake), 0, (struct sockaddr*)&sa_in, &sa_in_size);
+		return INCOMING_PACKET; break;
+	default:
+		return RECIEVE_ERROR; break;
+	}
+}
 
+RecieveResult UDPClient::ReceiveFrame(int sock, MessageFrame * ptr_message_frame)
+{
+	fd_set readfds;			// fd_set is a type
+	FD_ZERO(&readfds);		// initialize
+	FD_SET(sock, &readfds);	// put the socket in the set	
+	int bytes_recvd;
+	int outfds = select(1, &readfds, NULL, NULL, &timeouts);
+	switch (outfds)
+	{
+	case 0:
+		return TIMEOUT; break;
+	case 1:
+		bytes_recvd = recvfrom(sock, (char *)ptr_message_frame, sizeof(*ptr_message_frame), 0, (struct sockaddr*)&sa_in, &sa_in_size);
+		return INCOMING_PACKET; break;
+	default:
+		return RECIEVE_ERROR; break;
+	}
+}
 
+RecieveResult UDPClient::ReceiveFileAck(int sock, Acknowledgement * ack)
+{
+	fd_set readfds;
+	FD_ZERO(&readfds);
+	FD_SET(sock, &readfds); // put the socket in the set
+	int bytes_recvd;
+	int outfds = select(1, &readfds, NULL, NULL, &timeouts);
+	switch (outfds)
+	{
+	case 0:
+		return TIMEOUT; break;
+	case 1:
+		bytes_recvd = recvfrom(sock, (char *)ack, sizeof(*ack), 0, (struct sockaddr*)&sa_in, &sa_in_size);
+		return INCOMING_PACKET; break;
+	default:
+		return RECIEVE_ERROR; break;
+	}
+}
 void UDPClient::printError(TCHAR* msg) {
 	DWORD eNum;
 	TCHAR sysMsg[256];
@@ -319,157 +344,167 @@ void UDPClient::printError(TCHAR* msg) {
 	_tprintf(TEXT("\n\t%s failed with error %d (%s)"), msg, eNum, sysMsg);
 }
 
-void UDPClient::run(){
-	char server[INPÜT_LENGTH];
-	char direction[INPÜT_LENGTH];
-	char filename[FILENAME_LENGTH];
-	char remotehost[HOSTNAME_LENGTH];
-	char username[USERNAME_LENGTH];
-	char hostname[HOSTNAME_LENGTH];
-	unsigned long  username_length = (long)INFO_BUFFER_SIZE;
+void UDPClient::run()
+{
+	char server[INPÜT_LENGTH]; char filename[INPÜT_LENGTH]; char direction[INPÜT_LENGTH];
+	char hostname[HOSTNAME_LENGTH]; char username[USERNAME_LENGTH]; char remotehost[HOSTNAME_LENGTH];
+	unsigned long filename_length = (unsigned long)FILENAME_LENGTH;
 	bool bContinue = true;
 
-	/*Initialize WinSocket*/
+	/* Initialize winsocket */
 	if (WSAStartup(0x0202, &wsadata) != 0)
 	{
 		WSACleanup();
-		printError("Error in starting WSAStartup()");
+		printError("Error in starting WSAStartup()\n");
 	}
 
-	/*Get Username of client*/
-	if (!GetUserName((TCHAR*)username, &username_length))
-	{
-		printError("Cannot Get the username");
-	}
+	/* Get username of client */
+	if (!GetUserName((TCHAR*)username, &filename_length))
+		printError("Cannot get the user name");
 
-	/*Get Hostname of client*/
+	/* Get hostname of client */
 	if (gethostname(hostname, (int)HOSTNAME_LENGTH) != 0)
-	{
-		printError("Cannot Get the hostname");
-	}
+		printError("Cannot get the host name");
 
 	/* Display program header */
-	cout<<"\nClient Initiated at machine : "<< hostname;
+	printf("Client Initiated at machine [%s]\n\n", hostname);
 
-	cout << "\nEnter server name : "; cin >> server;	// prompt user for server name
-	// loop until username inputs 'Quit' as servername
+	cout << "Enter server name : "; cin >> server;	// prompt user for server name
+	// loop until username inputs 'quit' as servername
+	while ((strcmp(server, "Quit") != 0))
+	{
 
-	while (!strcmp(server,"Quit")){
-		/*Create UDP socket for client*/
-		if (sock = socket(AF_INET, SOCK_DGRAM, 0) < 0){ printError("Socket Failed");}
+		/* Create a datagram/UDP socket */
+		if ((sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0)
+			printError("socket() failed");
 
-		/*Fill in UDP Port and address info */
-		memset(&sa,0,sizeof(sa)); // Zero out structure
-		sa.sin_family = AF_INET;
-		sa.sin_addr.s_addr = htonl(INADDR_ANY);
-		sa.sin_port = htonl(CLIENT_PORT);
+		/* Client network information */
+		memset(&sa, 0, sizeof(sa)); // zero out structure
+		sa.sin_family = AF_INET; // Internet address family
+		sa.sin_addr.s_addr = htonl(INADDR_ANY); // Any incoming interface
+		sa.sin_port = htons(CLIENT_PORT);
 
-		/*Bind the socket*/
-		if (bind(sock,(LPSOCKADDR)&sa,sizeof(sa))==SOCKET_ERROR){ printError("Error in binding socket");}
+		/* Bind client socket to port 5000 */
+		if (bind(sock, (LPSOCKADDR)&sa, sizeof(sa)) < 0)
+			printError("Socket binding error");
 
 		srand((unsigned)time(NULL));
-		random = rand() % MAX_RANDOM;
+		random = rand() % MAX_RANDOM; // [0..255]
 
-		/*User Input*/
-		cout << "\nEnter Router HostName : " ;
-		cin >> remotehost;
-		cout << "\nEnter filename : ";
-		cin >> filename;
-		cout << "\nEnter the direction : ";
-		cout << "\nEnter GET for download from server. \n Enter PUT for upload to server." << endl;
-		cin >> direction;
+		/* User input*/
+		cout << "Enter router host : "; cin >> remotehost;
+		cout << "Enter file name   : "; cin >> filename;
+		cout << "Enter direction   : \n";
+		cout << "'get' to request a file from Server.\n";
+		cout << "'put' to put a file on Server.\n";
+		cout << "Enter your choice : ";
+		cin >> direction; cout << endl;
 
-		/*Copy User_input to handshake*/
-		strcpy(handshake.username, username);
+		/* Copy user-input into handshake */
 		strcpy(handshake.hostname, hostname);
+		strcpy(handshake.username, username);
 		strcpy(handshake.filename, filename);
-		
-		if (bContinue){
-			/*Router network Information*/
-			struct hostent *rp;
-			rp = gethostbyname(remotehost);
-			memcpy(&sa_in.sin_addr, rp->h_addr, rp->h_length);
-			sa_in.sin_family = AF_INET;
-			sa_in.sin_port = htonl(REMOTE_PORT);
-			sa_in.sin_addr.s_addr = htonl(INADDR_ANY);
 
-			/*File Direction*/
-			if (strcmp(direction, "GET") == 0){
+		if (bContinue)
+		{
+			/* Router network information */
+			struct hostent *rp; // structure containing router
+			rp = gethostbyname(remotehost);
+			memset(&sa_in, 0, sizeof(sa_in));
+			memcpy(&sa_in.sin_addr, rp->h_addr, rp->h_length); // fill sa_in with rp info
+			sa_in.sin_family = rp->h_addrtype;
+			sa_in.sin_port = htons(REMOTE_PORT);
+			sa_in_size = sizeof(sa_in);
+
+			handshake.client_number = random;
+			handshake.type = CLIENT_REQ;
+			handshake.packet_type = HANDSHAKE;
+
+			/* File transfer direction */
+			if (strcmp(direction, "get") == 0)
 				handshake.direction = GET;
-			}
-			else if (strcmp(direction, "PUT") == 0){
-				if (fileExist(filename))
+			else if (strcmp(direction, "put") == 0)
+			{
+				if (!FileExists(handshake.filename))
+					printError("File does not exist on client side.");
+				else
 					handshake.direction = PUT;
-				else printError("File Not Present At Client Side");
 			}
 			else
-				cout << "\nINVALID: Use GET/PUT only";
-			
-			//Setting up properties of handshake object.
-			handshake.client_number = random;
-			handshake.packet_type = HANDSHAKE;
-			handshake.handshake_type = CLIENT_REQ;
+				printError("Invalid direction. Use \"get\" or \"put\".");
 
-			/*Initiating handshaking*/
-			do{
-				if (sendRequest(sock, &handshake, &sa) != sizeof(handshake))
-					printError("\nError in starting handshake");
+			/* Initiate handshaking protocol */
+			do
+			{
+				if (SendRequest(sock, &handshake, &sa_in) != sizeof(handshake))
+					printError("Error in sending packet.");
 
-				cout << "\nClient sent successfully client number :C" << handshake.client_number;
-				if (TRACE1) { fout << "\nClient sent successfully client number :C" << handshake.client_number; }
-			} while (receiveResponse(sock, &handshake) != INCOMING_PACKET);
+				cout << "Client: sent handshake C" << handshake.client_number << endl;
+				if (TRACE) { fout << "Client: sent handshake C" << handshake.client_number << endl; }
 
-			//check how server responds
-			if (handshake.handshake_type == FILE_NOT_EXIST){
-				printError("Rquested file does not exist remotely");
+			} while (ReceiveResponse(sock, &handshake) != INCOMING_PACKET);
+
+			/* Check how the server responds */
+			if (handshake.type == FILE_NOT_EXIST)
+			{
+				cout << "File does not exist!" << endl;
+				if (TRACE) { fout << "Client: requested file does not exist!" << endl; }
 			}
-			else if (handshake.handshake_type == INVALID){
-				printError("Error in recieving response");
+			else if (handshake.type == INVALID)
+			{
+				cout << "Invalid request." << endl;
+				if (TRACE) { fout << "Client: invalid request." << endl; }
 			}
 
-			//Continue with file transfer only if server acknowledge appropriately.
-			if (handshake.handshake_type == ACK_CLIENT_NUM){//Sent the client acknowledgement
-				cout
-					<< "\nClient successfully recieved client number : C" << handshake.client_number
-					<< "\nClient successfully recieved the server number :S" << handshake.server_number;
-				if (TRACE1){
-					fout
-						<< "\nClient successfully recieved client number :C" << handshake.client_number
-						<< "\nClient successfully recieved the server number :S" << handshake.server_number;
-				}
+			/* Continue with file transfer only if the server has acknowledged the request */
+			if (handshake.type == ACK_CLIENT_NUM) // server agrees to transfer
+			{
+				cout << "Client: received handshake C" << handshake.client_number << " S" << handshake.server_number << endl;
+				if (TRACE) { fout << "Client: received handshake C" << handshake.client_number << " S" << handshake.server_number << endl; }
 
-				//Third Shake.
-				handshake.handshake_type = ACK_SERVER_NUM;
+				// Third shake. Acknowledge server's number by sending back the handshake
+				handshake.type = ACK_SERVER_NUM;
 				int sequence_number = handshake.server_number % 2;
-				if (sendRequest(sock,&handshake,&sa)!=sizeof(handshake)){
-					printError("Error in sending packet");
+				if (SendRequest(sock, &handshake, &sa_in) != sizeof(handshake))
+					printError("Error in sending packet.");
 
-					cout
-						<< "\nClient successfully sent the server number :S" << handshake.server_number;
-					if (TRACE1){
-						fout
-							<< "\nClient successfully sent the server number :S" << handshake.server_number;
-					}
-				}
-				//Checking Directions.
-				switch (handshake.direction){
-				case GET:
-					if (!recieveFile(sock, filename, hostname, handshake.client_number))
-						printError("Error in recieving file");
+				cout << "Client: sent handshake C" << handshake.client_number << " S" << handshake.server_number << endl;
+				if (TRACE) { fout << "Client: sent handshake C" << handshake.client_number << " S" << handshake.server_number << endl; }
+
+				switch (handshake.direction)
+				{
+				case GET: // Client is receiving host, server will send client seq
+					if (!ReceiveFile(sock, handshake.filename, hostname, handshake.client_number))
+						printError("An error occurred while receiving the file.");
 					break;
-				case PUT:
-					if (!sendFile(sock, filename, hostname, handshake.server_number))
-						printError("Error in sending file");
+				case PUT: // Client is sending host, server expects seq
+					if (!SendFile(sock, handshake.filename, hostname, handshake.server_number))
+						printError("An error occurred while sending the file.");
 					break;
 				default:
 					break;
-				}//Switch Close.
-			}//If close(Acknowledgment)			
-		}//If close (bContinue)
-		cout << "\nClosing socket";
+				}
+			}
+		}
+		cout << "Closing client socket." << endl;
+		if (TRACE) { fout << "Closing client socket." << endl; }
 		closesocket(sock);
-	}//While loop Close
+		cout << "Type Quit to Exit: ";
+		cin >> server;
+		//cout << "Enter server name : "; cin >> server;		// prompt user for server name
+		//cout << "Press Enter to exit..." << endl; getchar();
+	}
+
 }
+
+unsigned long UDPClient::ResolveName(char name[])
+{
+	struct hostent *host; // Structure containing host information
+	if ((host = gethostbyname(name)) == NULL)
+		printError("gethostbyname() failed");
+	return *((unsigned long *)host->h_addr_list[0]); // return the binary, network byte ordered address
+}
+
 UDPClient::UDPClient(char * fn) // constructor
 {
 	/* For timeout timer */
@@ -488,6 +523,7 @@ UDPClient::~UDPClient() // destructor
 	/* Uninstall winsock.dll */
 	WSACleanup();
 }
+
 int main(int argc, char *argv[]) {
 
 	UDPClient * cli = new UDPClient();
