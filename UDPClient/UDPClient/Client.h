@@ -4,7 +4,7 @@
 #define UTIMER 300000//Upper limit of timer
 #define CLIENT_PORT 5000 //Client Port Number
 #define REMOTE_PORT 7000 //Remote Host Port Number
-#define TRACE1 //Log File
+#define TRACE 1//Log File
 #define MAX_RETRIES 10 //Maximum number of retries to send a packet
 #define INPÜT_LENGTH 40 //Maximum length of client input
 #define HOSTNAME_LENGTH 40 //Maximum length of hostname entered
@@ -14,6 +14,7 @@
 #define MAX_RANDOM 256 //Upper limit for random numbers
 #define SEQUENCE_WIDTH 1 // bits width for sequence in stop and wait protocol
 #define INFO_BUFFER_SIZE 40
+#define CLIENT_DIR_PATH "C:\\Users\\Ankurp\\Documents\\Visual Studio 2013\\Projects\\UDPClient\\UDPClient" //Path of Client directory
 
 #include <winsock.h>
 #include<fstream>
@@ -34,7 +35,7 @@ typedef struct
 
 typedef struct{
 	PacketType packet_type;
-	HandshakeType handshake_type;
+	HandshakeType type;
 	Direction direction;
 	char hostname[HOSTNAME_LENGTH];
 	char filename[FILENAME_LENGTH];
@@ -52,7 +53,7 @@ typedef struct {
 }MessageFrame;
 
 class UDPClient{
-	int sock;
+	SOCKET sock;
 	SOCKADDR_IN sa;			// client info, IP, port 5000
 	SOCKADDR_IN sa_in;		// router info, IP, port 7000
 	int sa_in_size;
@@ -69,14 +70,15 @@ public:
 	~UDPClient(); //Destructor
 	
 	void run();
-	bool sendFile(int, char *, char *,int); //Send the file after the hanshake succeeded
-	int sendRequest(int, ThreeWayHandshake *, struct sockaddr_in*);; //Start the initiation of hanshake
-	int sendFrame(int, MessageFrame *); // Send the frame of data
-	int sendFileAck(int, Acknowledgement *); // Send the File Acknowledgment
+	bool SendFile(int, char *, char *,int); //Send the file after the hanshake succeeded
+	int SendRequest(int, ThreeWayHandshake *, struct sockaddr_in*);; //Start the initiation of hanshake
+	int SendFrame(int, MessageFrame *); // Send the frame of data
+	int SendFileAck(int, Acknowledgement *); // Send the File Acknowledgment
 
-	bool recieveFile(int, char *, char *, int); // Recieve the File from remote host after the handshake
-	RecieveResult receiveResponse(int, ThreeWayHandshake *); // Recieve the response after the initiation of handshake  
-	RecieveResult receiveFrame(int, MessageFrame *); // Recieve Frame of data
-	RecieveResult receiveFileAck(int, Acknowledgement *); // Recieve File Acknowledgment 
+	bool ReceiveFile(int, char *, char *, int); // Recieve the File from remote host after the handshake
+	RecieveResult ReceiveResponse(int, ThreeWayHandshake *); // Recieve the response after the initiation of handshake  
+	RecieveResult ReceiveFrame(int, MessageFrame *); // Recieve Frame of data
+	RecieveResult ReceiveFileAck(int, Acknowledgement *); // Recieve File Acknowledgment 
 	void printError(TCHAR* );
+	unsigned long ResolveName(char name[]);
 };
