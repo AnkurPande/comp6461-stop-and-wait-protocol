@@ -13,6 +13,23 @@
 #include <tchar.h>
 #include "Server.h"
 
+bool deleteFile(char *s)
+{
+	char  filename[150] = { "\0" };
+	
+	string s1 = SERVER_DIR_PATH;
+	string s2 = s;
+	s1.append("\\");
+	s1.append(s2);
+	s1.copy(filename, 150);
+
+	if (remove(filename) != 0)
+		return false;
+	else
+		return true;
+}
+
+
 bool FileExists(char * filename)
 {
 	int result;
@@ -370,6 +387,26 @@ void UDPServer::run()
 		if (TRACE1) { fout << "Server: user \"" << handshake.username << "\" on host \"" << handshake.hostname << "\" requests PUT file: \"" << handshake.filename << "\"" << endl; }
 		handshake.type = ACK_CLIENT_NUM; // server ACKs client's request		
 	}
+	else if (handshake.direction == DEL)
+	{
+		cout << "Server: user \"" << handshake.username << "\" on host \"" << handshake.hostname << "\" requests DELETE operation on File: \"" << handshake.filename << "\"" << endl;
+		if (TRACE1) { fout << "Server: user \"" << handshake.username << "\" on host \"" << handshake.hostname << "\" DELETE operation on File: \"" << handshake.filename << "\"" << endl; }
+	
+		if (deleteFile(handshake.filename))
+		{
+			handshake.type = FILE_DELETED; // server ACKs client's request
+			cout << "Server: requested file deleted successfully." << endl;
+			if (TRACE1) { fout << "Server: requested file deleted successfully." << endl; }
+		}
+		else
+		{
+			handshake.type = HANDSHAKE_ERROR;
+			cout << "Server: Unexpected problem in file delete." << endl;
+			if (TRACE1) {
+				fout << "Server: Unexpected problem in file delete." << endl;
+			}
+		}
+	}
 	else
 	{
 		handshake.type = INVALID;
@@ -379,11 +416,21 @@ void UDPServer::run()
 
 	if (handshake.type != ACK_CLIENT_NUM) // just send, don't expect a reply.
 	{
-		if (sendRequest(sock2, &handshake, &sa_in) != sizeof(handshake))
-			printError("Error in sending packet.");
+		if (handshake.type ==FILE_DELETED){
+			if (sendRequest(sock2, &handshake, &sa_in) != sizeof(handshake))
+				printError("Error in sending packet.");
 
-		cout << "Server: sent error message to client. " << endl;
-		if (TRACE1) { fout << "Server: sent error message to client. " << endl; }
+			cout << "Server: File Succesfully Deleted. " << endl;
+			if (TRACE1) { fout << "Server: File Successfully Deleted. " << endl; }
+		}
+		else{
+			if (sendRequest(sock2, &handshake, &sa_in) != sizeof(handshake))
+				printError("Error in sending packet.");
+
+			cout << "Server: sent error messages to client. " << endl;
+			if (TRACE1) { fout << "Server: sent error messages to client " << endl; }
+		}
+
 	}
 	else if (handshake.type == ACK_CLIENT_NUM)
 	{
@@ -399,11 +446,11 @@ void UDPServer::run()
 			cout << "Server: sent handshake C" << handshake.client_number << " S" << handshake.server_number << endl;
 			if (TRACE1) { fout << "Server: sent handshake C" << handshake.client_number << " S" << handshake.server_number << endl; }
 
-		} while ((receiveResponse(sock2, &handshake) != INCOMING_PACKET) && (handshake.type != ACK_SERVER_NUM));
+		} while ((receiveResponse(sock2, &handshake) != INCOMING_PACKET) || (handshake.type != ACK_SERVER_NUM));
 
 		cout << "Server: received handshake C" << handshake.client_number << " S" << handshake.server_number << endl;
 		if (TRACE1) { fout << "Server: received handshake C" << handshake.client_number << " S" << handshake.server_number << endl; }
-
+	
 		if (handshake.type == ACK_SERVER_NUM)
 		{
 			switch (handshake.direction)
@@ -426,6 +473,13 @@ void UDPServer::run()
 		{
 			cout << "Handshake error!" << endl;
 			if (TRACE1) { fout << "Handshake error!" << endl; }
+			handshake.type = HANDSHAKE_ERROR;
+			handshake.packet_type = HANDSHAKE;
+			if (sendRequest(sock2, &handshake, &sa_in) != sizeof(handshake))
+				printError("Error in sending packet.");
+
+			cout << "Server: sent error message to client. " << endl;
+			if (TRACE1) { fout << "Server: sent error message to client. " << endl; }
 		}
 	}
 	cout << "Closing server socket." << endl;
