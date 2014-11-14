@@ -345,7 +345,7 @@ void UDPServer::run()
 		printError("Socket binding error");
 
 	/* Wait until a packet comes in, ignore if not CLIENT_REQ */
-	while (receiveResponse(sock2, &handshake) != INCOMING_PACKET || handshake.handshake_type != CLIENT_REQ) { ; }
+	while (receiveResponse(sock2, &handshake) != INCOMING_PACKET || handshake.type != CLIENT_REQ) { ; }
 
 	cout << "Server: received handshake Client" << handshake.client_number << endl;
 	if (TRACE1) { fout << "Server: received handshake Client" << handshake.client_number << endl; }
@@ -356,10 +356,10 @@ void UDPServer::run()
 		if (TRACE1) { fout << "Server: user \"" << handshake.username << "\" on host \"" << handshake.hostname << "\" requests GET file: \"" << handshake.filename << "\"" << endl; }
 
 		if (FileExists(handshake.filename))
-			handshake.handshake_type = ACK_CLIENT_NUM; // server ACKs client's request
+			handshake.type = ACK_CLIENT_NUM; // server ACKs client's request
 		else
 		{
-			handshake.handshake_type = FILE_NOT_EXIST;
+			handshake.type = FILE_NOT_EXIST;
 			cout << "Server: requested file does not exist." << endl;
 			if (TRACE1) { fout << "Server: requested file does not exist." << endl; }
 		}
@@ -368,16 +368,16 @@ void UDPServer::run()
 	{
 		cout << "Server: user \"" << handshake.username << "\" on host \"" << handshake.hostname << "\" requests PUT file: \"" << handshake.filename << "\"" << endl;
 		if (TRACE1) { fout << "Server: user \"" << handshake.username << "\" on host \"" << handshake.hostname << "\" requests PUT file: \"" << handshake.filename << "\"" << endl; }
-		handshake.handshake_type = ACK_CLIENT_NUM; // server ACKs client's request		
+		handshake.type = ACK_CLIENT_NUM; // server ACKs client's request		
 	}
 	else
 	{
-		handshake.handshake_type = INVALID;
+		handshake.type = INVALID;
 		cout << "Server: invalid request." << endl;
 		if (TRACE1) { fout << "Server: invalid request." << endl; }
 	}
 
-	if (handshake.handshake_type != ACK_CLIENT_NUM) // just send, don't expect a reply.
+	if (handshake.type != ACK_CLIENT_NUM) // just send, don't expect a reply.
 	{
 		if (sendRequest(sock2, &handshake, &sa_in) != sizeof(handshake))
 			printError("Error in sending packet.");
@@ -385,7 +385,7 @@ void UDPServer::run()
 		cout << "Server: sent error message to client. " << endl;
 		if (TRACE1) { fout << "Server: sent error message to client. " << endl; }
 	}
-	else if (handshake.handshake_type == ACK_CLIENT_NUM)
+	else if (handshake.type == ACK_CLIENT_NUM)
 	{
 		srand((unsigned)time(NULL));
 		random = rand() % MAX_RANDOM; // [0..255]	
@@ -399,12 +399,12 @@ void UDPServer::run()
 			cout << "Server: sent handshake C" << handshake.client_number << " S" << handshake.server_number << endl;
 			if (TRACE1) { fout << "Server: sent handshake C" << handshake.client_number << " S" << handshake.server_number << endl; }
 
-		} while (receiveResponse(sock2, &handshake) != INCOMING_PACKET || handshake.handshake_type != ACK_SERVER_NUM);
+		} while ((receiveResponse(sock2, &handshake) != INCOMING_PACKET) && (handshake.type != ACK_SERVER_NUM));
 
 		cout << "Server: received handshake C" << handshake.client_number << " S" << handshake.server_number << endl;
 		if (TRACE1) { fout << "Server: received handshake C" << handshake.client_number << " S" << handshake.server_number << endl; }
 
-		if (handshake.handshake_type == ACK_SERVER_NUM)
+		if (handshake.type == ACK_SERVER_NUM)
 		{
 			switch (handshake.direction)
 			{
