@@ -21,24 +21,22 @@
 using namespace std;
 using std::ofstream;
 
-void deleteFile(string s)
+bool deleteFile(char *s)
 {
 	char  filename[150] = { "\0" };
-	cout << "Enter the file name : ";
-	cin >> filename;
+	
 
-	string s1 = s;
-	string s2 = filename;
+	string s1 = CLIENT_DIR_PATH;
+	string s2 = s;
 	s1.append("\\");
 	s1.append(s2);
 	s1.copy(filename, 150);
-	cout << filename << endl;
+//	cout << filename << endl;
 
 	if (remove(filename) != 0)
-		perror("\nError deleting file.\n");
+		return false;
 	else
-		puts("\nFile successfully deleted.\n");
-
+		return true;
 }
 
 void list(string s){
@@ -72,15 +70,7 @@ bool FileExists(char * filename)
 	int result;
 	struct _stat stat_buf;
 	result = _stat(filename, &stat_buf);
-	switch (errno){
-	case  ENOENT:
-		cout << "File not exist";
-	case EINVAL:
-		cout << "Path invalid";
-	default:
-		//cout << "Unexpected error";
-		;
-	}
+	
 	return (result == 0);
 }
 
@@ -390,7 +380,7 @@ void UDPClient::printError(TCHAR* msg) {
 		((*p == '.') || (*p < 33)));
 
 	// Display the message
-	_tprintf(TEXT("\n\t%s failed with error %d (%s)"), msg, eNum, sysMsg);
+	_tprintf(TEXT("\n%s: Failed with ERROR NO: %d \nERROR Msg:(%s)\n"), msg, eNum, sysMsg);
 }
 
 void UDPClient::run()
@@ -398,7 +388,7 @@ void UDPClient::run()
 	char server[INPÜT_LENGTH]; char filename[INPÜT_LENGTH]; char direction[INPÜT_LENGTH];
 	char hostname[HOSTNAME_LENGTH]; char username[USERNAME_LENGTH]; char remotehost[HOSTNAME_LENGTH];
 	unsigned long filename_length = (unsigned long)FILENAME_LENGTH;
-	bool bContinue = true; int nTries;
+	bool bContinue = false; int nTries;
 
 	/* Initialize winsocket */
 	if (WSAStartup(0x0202, &wsadata) != 0)
@@ -441,21 +431,104 @@ void UDPClient::run()
 		random = rand() % MAX_RANDOM; // [0..255]
 
 		/* User input*/
-		cout << "Enter router host : "; cin >> remotehost;
-		cout << "Enter file name   : "; cin >> filename;
-		cout << "Enter direction   : \n";
-		cout << "'get' to request a file from Server.\n";
-		cout << "'put' to put a file on Server.\n";
-		cout << "Enter your choice : ";
+		cout << "\nEnter router host : " << flush; cin >> remotehost;
+		cout << "\nEnter direction   : " << flush;
+		cout << "\n'Get' to request a file from Server." << flush;
+		cout << "\n'Put' to put a file on Server." << flush;
+		cout << "\n'List' to request a list of files ." << flush;
+		cout << "\n'Delete' to delete file ." << flush;
+		cout << "\nEnter your choice : " << flush;
 		cin >> direction; cout << endl;
 
-		/* Copy user-input into handshake */
-		strcpy(handshake.hostname, hostname);
-		strcpy(handshake.username, username);
-		strcpy(handshake.filename, filename);
+		char choice[10] = { "\0" };
+
+		/* File transfer direction */
+
+		if (strcmp(direction, "Delete") == 0)
+		{
+			
+			cout << "\nEnter C for client directory" << flush 
+				 << "\nEnter S for server directory" << flush
+				 << "\nEnter your choice : " << flush ;
+			cin >> choice; cout << endl;
+
+			if (choice[0] == 'C')
+			{
+				//	cout << "Inside  Client Delete.";
+				list(CLIENT_DIR_PATH);
+				cout << "\nEnter file name   : " << flush; cin >> filename;
+
+				if (!deleteFile(filename))
+				{
+					printError("Problem in deleting file.");
+				}
+				else if (deleteFile(filename))
+				{
+					cout << "File successfuly deleted." << endl;
+				}
+			
+			}
+			else if (choice[0] == 'S')
+			{
+				bContinue = true;
+				list(SERVER_DIR_PATH);
+				handshake.direction = DEL;
+				cout << "\nEnter file name   : " << flush; cin >> filename;
+			}
+		}
+		else if (strcmp(direction, "List") == 0)
+		{
+			cout << "\nEnter C for client directory" << flush
+				 << "\nEnter S for server directory" << flush
+				 << "\nEnter your choice : " << flush;
+			cin >> choice; cout << endl;
+
+			if (choice[0] == 'C')
+			{
+				//	cout << "Inside Client List.";
+				list(CLIENT_DIR_PATH);
+			}
+			else if (choice[0] == 'S')
+			{
+				//	cout << "Inside Server List.";
+				list(SERVER_DIR_PATH);
+			}
+		}
+		else if (strcmp(direction, "Get") == 0)
+		{
+			list(SERVER_DIR_PATH);
+			cout << "\nEnter file name   : " << flush; cin >> filename;
+
+			bContinue = true;
+			handshake.direction = GET;
+		}
+		else if (strcmp(direction, "Put") == 0)
+		{
+			list(CLIENT_DIR_PATH);
+			cout << "\nEnter file name   : " << flush; cin >> filename;
+			if (!FileExists(filename)){
+				printError("File does not exist on client side.");
+				system("PAUSE");
+				break;
+			}
+			else{
+				handshake.direction = PUT;
+				bContinue = true;
+			}
+		}
+		else
+		{	bContinue = false;
+			printError("Invalid Choice of Direction.");
+		}
+		
 
 		if (bContinue)
 		{
+			/* Copy user-input into handshake */
+			strcpy(handshake.hostname, hostname);
+			strcpy(handshake.username, username);
+			strcpy(handshake.filename, filename);
+
 			/* Router network information */
 			struct hostent *rp; // structure containing router
 			rp = gethostbyname(remotehost);
@@ -470,18 +543,13 @@ void UDPClient::run()
 			handshake.packet_type = HANDSHAKE;
 
 			/* File transfer direction */
-			if (strcmp(direction, "get") == 0)
+			/*if (strcmp(direction, "get") == 0)
 				handshake.direction = GET;
 			else if (strcmp(direction, "put") == 0)
 			{
-				if (!FileExists(handshake.filename))
-					printError("File does not exist on client side.");
-				else
-					handshake.direction = PUT;
+				
 			}
-			else
-				printError("Invalid direction. Use \"get\" or \"put\".");
-
+			
 			/* Initiate handshaking protocol */
 			nTries = 0;
 			do
@@ -494,15 +562,23 @@ void UDPClient::run()
 				if (TRACE) { fout << "Client: sent handshake C" << handshake.client_number << endl; }
 				if (nTries > 20)
 				{
-					cout << "Handshake error!" << endl;
-					if (TRACE) { fout << "Handshake error!" << endl; }
 					break; 
 				}
 
 			} while (ReceiveResponse(sock, &handshake) != INCOMING_PACKET);
 
 			/* Check how the server responds */
-			if (handshake.type == FILE_NOT_EXIST)
+			if (handshake.type==FILE_DELETED)
+			{
+				cout << "Client: Server Responds File Deleted Successfully!" << endl;
+				if (TRACE) { fout << "Client: Server Responds File Deleted successfully!" << endl; }
+			}
+			else if (handshake.type == HANDSHAKE_ERROR)
+			{
+				cout << "Client: Server Responds Handshake ERROR!" << endl;
+				if (TRACE) { fout << "Client: Server Responds Handshake ERROR" << endl; }
+			}
+			else if (handshake.type == FILE_NOT_EXIST)
 			{
 				cout << "File does not exist!" << endl;
 				if (TRACE) { fout << "Client: requested file does not exist!" << endl; }
@@ -544,8 +620,10 @@ void UDPClient::run()
 				}
 			}
 			else{
-				cout << "Handshake error!" << endl;
-				if (TRACE) { fout << "Handshake error!" << endl; }
+				if (!handshake.type==FILE_DELETED){
+					cout << "Handshake error!" << endl;
+					if (TRACE) { fout << "Handshake error!" << endl; }
+				}
 			}
 		}
 		cout << "Closing client socket." << endl;
