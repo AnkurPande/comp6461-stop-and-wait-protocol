@@ -79,6 +79,7 @@ bool FileExists(char * filename)
 		cout << "Path invalid";
 	default:
 		//cout << "Unexpected error";
+		;
 	}
 	return (result == 0);
 }
@@ -397,7 +398,7 @@ void UDPClient::run()
 	char server[INPÜT_LENGTH]; char filename[INPÜT_LENGTH]; char direction[INPÜT_LENGTH];
 	char hostname[HOSTNAME_LENGTH]; char username[USERNAME_LENGTH]; char remotehost[HOSTNAME_LENGTH];
 	unsigned long filename_length = (unsigned long)FILENAME_LENGTH;
-	bool bContinue = true;
+	bool bContinue = true; int nTries;
 
 	/* Initialize winsocket */
 	if (WSAStartup(0x0202, &wsadata) != 0)
@@ -482,13 +483,21 @@ void UDPClient::run()
 				printError("Invalid direction. Use \"get\" or \"put\".");
 
 			/* Initiate handshaking protocol */
+			nTries = 0;
 			do
 			{
+				nTries++;
 				if (SendRequest(sock, &handshake, &sa_in) != sizeof(handshake))
 					printError("Error in sending packet.");
 
 				cout << "Client: sent handshake C" << handshake.client_number << endl;
 				if (TRACE) { fout << "Client: sent handshake C" << handshake.client_number << endl; }
+				if (nTries > 20)
+				{
+					cout << "Handshake error!" << endl;
+					if (TRACE) { fout << "Handshake error!" << endl; }
+					break; 
+				}
 
 			} while (ReceiveResponse(sock, &handshake) != INCOMING_PACKET);
 
@@ -529,12 +538,14 @@ void UDPClient::run()
 					if (!SendFile(sock, handshake.filename, hostname, handshake.server_number))
 						printError("An error occurred while sending the file.");
 					break;
-				case DEL:
-
-				case LIST:
+				
 				default:
 					break;
 				}
+			}
+			else{
+				cout << "Handshake error!" << endl;
+				if (TRACE) { fout << "Handshake error!" << endl; }
 			}
 		}
 		cout << "Closing client socket." << endl;
