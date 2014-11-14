@@ -15,6 +15,7 @@
 #define SEQUENCE_WIDTH 1 // bits width for sequence in stop and wait protocol
 #define INFO_BUFFER_SIZE 40
 #define CLIENT_DIR_PATH "C:\\Users\\Ankurp\\Documents\\Visual Studio 2013\\Projects\\UDPClient\\UDPClient" //Path of Client directory
+#define SERVER_DIR_PATH "C:\\Users\\Ankurp\\Documents\\Visual Studio 2013\\Projects\\UDPServer\\UDPServer" //Path of Server directory
 
 #include <winsock.h>
 #include<fstream>
@@ -24,7 +25,7 @@ using namespace std;
 typedef enum{GET=1,PUT,DEL,LIST}Direction; 
 typedef enum{HANDSHAKE=1,FRAME,FRAME_ACK}PacketType ;
 typedef enum{TIMEOUT=1,INCOMING_PACKET,RECIEVE_ERROR}RecieveResult;
-typedef enum{CLIENT_REQ=1,ACK_CLIENT_NUM,ACK_SERVER_NUM,FILE_NOT_EXIST,INVALID}HandshakeType;
+typedef enum{CLIENT_REQ=1,ACK_CLIENT_NUM,ACK_SERVER_NUM,FILE_NOT_EXIST,INVALID,FILE_DELETED,HANDSHAKE_ERROR}HandshakeType;
 typedef enum{INITIAL_DATA=1,DATA,FINAL_DATA}MessageFrameHeader;
 
 typedef struct
@@ -40,7 +41,7 @@ typedef struct{
 	char hostname[HOSTNAME_LENGTH];
 	char filename[FILENAME_LENGTH];
 	char username[USERNAME_LENGTH];
-	int client_number;
+	int client_number ;
 	int server_number;
 }ThreeWayHandshake;
 
