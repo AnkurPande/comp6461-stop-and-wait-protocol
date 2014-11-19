@@ -11,6 +11,8 @@
 #include <stdio.h>
 #include <process.h>
 #include <tchar.h>
+#include<vector>
+#include<string>
 #include "Server.h"
 
 bool deleteFile(char *s)
@@ -27,6 +29,34 @@ bool deleteFile(char *s)
 		return false;
 	else
 		return true;
+}
+
+void Generatelist(){
+	std::ofstream file;
+	WIN32_FIND_DATA file_data;
+	HANDLE hFile;
+	vector<string> files;
+
+	string dir = SERVER_DIR_PATH;
+
+
+	hFile = FindFirstFile((dir + "/*").c_str(), &file_data);
+	
+	file.open("C:\\Users\\Ankurp\\Documents\\Visual Studio 2013\\Projects\\UDPServer\\List.txt");
+
+	file << file_data.cFileName;
+	do{
+		string fileName = file_data.cFileName;
+		files.push_back(fileName);
+	} while ((FindNextFile(hFile, &file_data)) != 0);
+
+	file << endl
+		<< "========================" << endl;
+	for (auto & i : files){
+		file << i << endl;
+	}
+	file << endl
+		<< "========================" << endl;
 }
 
 
@@ -331,6 +361,7 @@ void UDPServer::run()
 	char remotehost[HOSTNAME_LENGTH];
 	char username[USERNAME_LENGTH];
 	char hostname[HOSTNAME_LENGTH];
+	char path[100] = "C:\\Users\\Ankurp\\Documents\\Visual Studio 2013\\Projects\\UDPServer\\";
 	/* Initialize winsocket */
 	if (WSAStartup(0x0202, &wsadata) != 0)
 	{
@@ -387,6 +418,12 @@ void UDPServer::run()
 		if (TRACE1) { fout << "Server: user \"" << handshake.username << "\" on host \"" << handshake.hostname << "\" requests PUT file: \"" << handshake.filename << "\"" << endl; }
 		handshake.type = ACK_CLIENT_NUM; // server ACKs client's request		
 	}
+	else if (handshake.direction == LIST)
+	{
+		cout << "Server: user \"" << handshake.username << "\" on host \"" << handshake.hostname << "\" requests list Of files in server directory."<< endl;
+		if (TRACE1) { fout << "Server: user \"" << handshake.username << "\" on host \"" << handshake.hostname << "\" requests list Of files in server directory." << endl; }
+		handshake.type = ACK_CLIENT_NUM; // server ACKs client's request		
+	}
 	else if (handshake.direction == DEL)
 	{
 		cout << "Server: user \"" << handshake.username << "\" on host \"" << handshake.hostname << "\" requests DELETE operation on File: \"" << handshake.filename << "\"" << endl;
@@ -400,7 +437,7 @@ void UDPServer::run()
 		}
 		else
 		{
-			handshake.type = HANDSHAKE_ERROR;
+			handshake.type = HANDSHAKE_ERROR; 
 			cout << "Server: Unexpected problem in file delete." << endl;
 			if (TRACE1) {
 				fout << "Server: Unexpected problem in file delete." << endl;
@@ -446,7 +483,7 @@ void UDPServer::run()
 			cout << "Server: sent handshake C" << handshake.client_number << " S" << handshake.server_number << endl;
 			if (TRACE1) { fout << "Server: sent handshake C" << handshake.client_number << " S" << handshake.server_number << endl; }
 
-		} while ((receiveResponse(sock2, &handshake) != INCOMING_PACKET) || (handshake.type != ACK_SERVER_NUM));
+		} while ((receiveResponse(sock2, &handshake) != INCOMING_PACKET) && (handshake.type != ACK_SERVER_NUM));
 
 		cout << "Server: received handshake C" << handshake.client_number << " S" << handshake.server_number << endl;
 		if (TRACE1) { fout << "Server: received handshake C" << handshake.client_number << " S" << handshake.server_number << endl; }
@@ -464,7 +501,12 @@ void UDPServer::run()
 				if (!recieveFile(sock2, handshake.filename, server, handshake.server_number))
 					printError("An error occurred while receiving the file.");
 				break;
-
+			case LIST:
+				strcat(path,"list.txt");
+				if (!sendFile(sock2, path, server, handshake.client_number))
+					printError("An error occurred while sending the file.");
+					SetFileAttributes(handshake.filename, FILE_ATTRIBUTE_HIDDEN);
+				break;
 			default:
 				break;
 			}
@@ -533,6 +575,7 @@ UDPServer::~UDPServer() // destructor
 int main(void)
 {
 	UDPServer * ser = new UDPServer();
+	Generatelist();
 	ser->run();
 	return 0;
 }
