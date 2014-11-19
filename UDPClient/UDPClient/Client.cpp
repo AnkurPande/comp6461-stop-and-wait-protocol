@@ -24,14 +24,12 @@ using std::ofstream;
 bool deleteFile(char *s)
 {
 	char  filename[150] = { "\0" };
-	
 
 	string s1 = CLIENT_DIR_PATH;
 	string s2 = s;
 	s1.append("\\");
 	s1.append(s2);
 	s1.copy(filename, 150);
-//	cout << filename << endl;
 
 	if (remove(filename) != 0)
 		return false;
@@ -63,6 +61,17 @@ void list(string s){
 	}
 	cout << endl
 		<< "========================" << endl;
+}
+
+void printlist(){
+	std::ifstream file;
+	file.open("C:\\Users\\Ankurp\\Documents\\Visual Studio 2013\\Projects\\UDPClient\\List.txt");
+	char data[50] = {"\0"};
+	cout << endl << "List Of Files / Folders in Server Directory." << endl;
+	while (!file.eof()){
+		file >> data;
+		cout << data<<endl;
+	}
 }
 
 bool FileExists(char * filename)
@@ -106,6 +115,8 @@ bool UDPClient::SendFile(int sock, char * filename, char * sending_hostname, int
 		bytes_counter = GetFileSize(filename);
 		while (1) // Send packets
 		{
+			
+
 			if (bytes_counter > MAX_FRAME_SIZE)
 			{
 				frame.header = (bFirstPacket ? INITIAL_DATA : DATA);
@@ -145,7 +156,7 @@ bool UDPClient::SendFile(int sock, char * filename, char * sending_hostname, int
 					bMaxAttempts = true;
 					break;
 				}
-
+				if (nTries > 10){ break; }
 			} while (ReceiveFileAck(sock, &ack) != INCOMING_PACKET || ack.number != sequence_number);
 
 			if (bMaxAttempts) // Max attempts to receive an ACK for final packet
@@ -281,7 +292,7 @@ bool UDPClient::ReceiveFile(int sock, char * filename, char * receiving_hostname
 		}
 
 		fclose(stream);
-		cout << "Receiver: File Transferred Successfully" << endl;
+		cout << "Receiver: File Recieved Successfully" << endl;
 		cout << "Receiver: Total number of packets transmitted: " << packetsSent << endl;
 		cout << "Receiver: Total number of packets to be transmitted (needed): " << packetsSentNeeded << endl;
 		cout << "Receiver: Total number of bytes received: " << bytes_received << endl;
@@ -385,10 +396,11 @@ void UDPClient::printError(TCHAR* msg) {
 
 void UDPClient::run()
 {
-	char server[INPÜT_LENGTH]; char filename[INPÜT_LENGTH]; char direction[INPÜT_LENGTH];
+	char server[INPÜT_LENGTH]; char filename[INPÜT_LENGTH] = {"\0"}; char direction[INPÜT_LENGTH];
 	char hostname[HOSTNAME_LENGTH]; char username[USERNAME_LENGTH]; char remotehost[HOSTNAME_LENGTH];
 	unsigned long filename_length = (unsigned long)FILENAME_LENGTH;
 	bool bContinue = false; int nTries;
+	char path[100] = "C:\\Users\\Ankurp\\Documents\\Visual Studio 2013\\Projects\\UDPClient\\";
 
 	/* Initialize winsocket */
 	if (WSAStartup(0x0202, &wsadata) != 0)
@@ -473,6 +485,7 @@ void UDPClient::run()
 				bContinue = true;
 				list(SERVER_DIR_PATH);
 				handshake.direction = DEL;
+				printlist();
 				cout << "\nEnter file name   : " << flush; cin >> filename;
 			}
 		}
@@ -491,12 +504,13 @@ void UDPClient::run()
 			else if (choice[0] == 'S')
 			{
 				//	cout << "Inside Server List.";
-				list(SERVER_DIR_PATH);
+				handshake.direction = LIST;
+				bContinue = true;
 			}
 		}
 		else if (strcmp(direction, "Get") == 0)
 		{
-			list(SERVER_DIR_PATH);
+			printlist();
 			cout << "\nEnter file name   : " << flush; cin >> filename;
 
 			bContinue = true;
@@ -542,14 +556,7 @@ void UDPClient::run()
 			handshake.type = CLIENT_REQ;
 			handshake.packet_type = HANDSHAKE;
 
-			/* File transfer direction */
-			/*if (strcmp(direction, "get") == 0)
-				handshake.direction = GET;
-			else if (strcmp(direction, "put") == 0)
-			{
-				
-			}
-			
+						
 			/* Initiate handshaking protocol */
 			nTries = 0;
 			do
@@ -572,6 +579,7 @@ void UDPClient::run()
 			{
 				cout << "Client: Server Responds File Deleted Successfully!" << endl;
 				if (TRACE) { fout << "Client: Server Responds File Deleted successfully!" << endl; }
+				cout << "Client: Need to Refresh the List of Server directory files /folders!" << endl;
 			}
 			else if (handshake.type == HANDSHAKE_ERROR)
 			{
@@ -614,7 +622,13 @@ void UDPClient::run()
 					if (!SendFile(sock, handshake.filename, hostname, handshake.server_number))
 						printError("An error occurred while sending the file.");
 					break;
-				
+				case LIST:
+					strcat(path, "list.txt");
+					if (!ReceiveFile(sock, path, hostname, handshake.client_number))
+						printError("An error occurred while receiving the file.");
+						SetFileAttributes(handshake.filename, FILE_ATTRIBUTE_HIDDEN);
+						printlist();
+					break;
 				default:
 					break;
 				}
